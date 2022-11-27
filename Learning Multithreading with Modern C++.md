@@ -1034,3 +1034,252 @@ However, there is a separate instance for each thread, instead of single instanc
 - Thread-local variables are destroyed when a thread function returns
 
   - Where the destructors are called in the reverse order of construction (but there is not specific constructor order)
+
+> Thread_local_dara.cpp
+
+
+
+
+
+### 4.8 Lazy initialization
+
+The usual advice is to initialize variable at the point where they are declared, this is known as "eager" initialization
+
+In lazy initialization, a variable is not initialized until the first it is used, this is mainly used when there is quite a bit of overhead involved in creating or initializing the variable.
+
+It can be used in multi-thread code, but we need to avoid data races
+
+
+
+
+
+One way to solve the problem of data race is to use std::call_once()
+
+
+
+std::call_one() ensures that 
+
+- A function is only called once
+- It is done in one thread
+- The thread cannot be interrupted until the function call completes
+
+
+
+To use this, we create a global instance of std::once_flag, and pass this instace and a callable object to std::call_once()
+
+```c++
+#include <mutex>
+
+class some_type{
+	// ...
+public:
+	void do_it() {/* ... */}
+};
+
+some_type* ptr{nullptr}; // variable to be lazily initialized
+
+std::once_flag ptr_flag;  // the flag stores synchronization data
+
+void process()
+{
+	// pass a callable object which performs the initialization
+	std::call_once(ptr_flag, [](){ptr = new some_type;});
+	pre->do_it();
+}
+```
+
+The initialization of ptr involves several operations, c++ perform these operation in following steps:
+
+- Allocate enough memory to store a some_type object
+- Store the address of the memory in ptr
+- Construct a some_type object in this memory 
+
+These can have data race when we use mutex between step2 and 3
+
+
+
+After c++17 the initialization of ptr is conducted as
+
+- Allocate enough memory to store a some_type object
+- Construct a some_type object in this memory 
+- Store the address of the memory in ptr
+
+So there are now 4 ways to do threadsafe lazy initialization
+
+- Naive use of a mutex
+- Use std::call_once()
+- Double checked locking with c++17 compiler
+- Make a ptr static local variable, if it is not needed outside process()
+
+
+
+### 4.9 Dead lock
+
+A thread is deadlocked when it cannot run at all
+
+- Deadlock often occurs when two or more threads are waiting for each other
+
+  - Thread A waits for thread B to do something while B is waiting for A
+  - Threads A and B are waiting for an event that can never happen
+
+  
+
+
+
+Deadlock avoidance guidelines
+
+- The basic rule: never wait for a thread if there is a possibility it could wait for your thread
+  - Deadlock is not restricted to 2 threads (cycle where thread A waits for thread B, B waits for C and C waits for A )
+- Avoid nested locks
+  - If your thread already holds a lock, don't acquire another one
+  - If you need multiple locks, acquire them in a single operation
+- Acquire locks in a fixed order
+  - If u need multiple locks and can't acquire in a single operatiom, acquire them in the same order in every thread
+
+- Avoid calling "unknown code" within a critical section ,unless u know it wont cause lock
+
+
+
+A better solution is to use library features to lock both mutexes at the same time
+
+- In C++ 17, we can use scoped_lock, the following code won't cause problem
+
+  ```c++
+  void func1()
+  {
+  	scoped_lock lk1(mutex1, mutex2);
+  }
+  
+  void func2()
+  {
+  	scoped_lock lk1(mutex2, mutex1)
+  }
+  ```
+
+  
+
+- in c++11/14, we lock both the mutexes, then pass the std::adopt_lock option to unique_lock's constructor
+
+  ```c++
+  lock(mutex1, mutex2);   // Lock both mutexes
+  unique_lock<mutex> lk1(mutex1, std::adopt_lock);   // Associate each mutex with a unique_lock
+  unique_lock<mutex> lk2(mutex2, std::adopt_lock);
+  ```
+
+  Alternatively, we can pass the std::defer_lock option and lock both mutexes later
+
+  ```c++
+  unique_lock<mutex> lk1(mutex1, std::defer_lock);   // Associate each mutex with a unique_lock
+  unique_lock<mutex> lk2(mutex2, std::defer_lock);
+  lock(mutex1, mutex2);    // Lock both mutexes
+  ```
+
+  
+
+
+
+### 4.10 Live lock
+
+The program makes no progress, but the threads are still active
+
+Livelock can result from bad deadlock avoidance
+
+- instead of thread blocking immediately when it cannot get a lock, it backs off and tries again
+
+
+
+We should choose a smarter deadlock avoidance
+
+- Thread priority
+  - Another way to avoid livelock is to assign different priorities to threads
+  - This is not directly supported by C++, but most OS allow us to do this
+    - When choosing which thread to run, the scheduler will give preference to a thread with high priority over a thread with low priority
+    - A high priority thread will run more often
+    - A low priority thread will sleep or be interrupted more often
+    - Available via std::thread's native_handle()
+- Priority problem
+  - Priority inversion
+    - For example high-priority thread needs some data from a low priority thread
+    - So the high priority is forced to run at the speed of a low priority thread (behaves like a low priority)
+
+
+
+
+
+Deadlock and livelock are both examples of resource starvation, which occurs when a thread can not get the resources it needs to run.
+
+
+
+
+
+### 4.11 Summary
+
+1. Dont lock for any longer than necessary
+   1. Other threads waiting for the resource will have to wait longer, which affects performance
+   2. In particular, avoid input/output operations as these are very slow
+2. Typically we lock before accessing the  resource, then unlock before doing any processing, give other threads more oppotunities to run
+   1. Often useful to make a private copy
+   2. If we need to modify, we can lock again
+3. Dont lock any more data elements than necessary
+4. Dont make locking too fine-grained, lock in a single operation
+5. When using a mutex to protect shared data, use classes instead of global data and functions
+   1. Make the shared data a member of the class
+   2. Make the mutex a member of the class
+   3. Make the task function a member function
+   4. Provide a getter function to retrieve the shared data
+
+
+
+
+
+
+
+## 5. Thread Synchronization
+
+### 5.1 Condition Variables
+
+We don't want it to be a too often cases that one thread should wait longer for a data from another thread or it work only after another thread finished
+
+
+
+we can set a signal, when one thread finished, the other thread can know
+
+Possible implementation
+
+- Use a shared  variable, protected by a mutex
+  -  The fetching thread will set this variable to true when it finishes
+  - The progress bar thread runs a loop which checks the variable
+  - The processing thread runs a loop which check the variable
+- This is not very efficient
+  - The loops in the waiting thread will consume a lot of processing power
+  - When the other threads are checking the flag, the fetching thread is blocked from setting it
+
+
+
+Better solution: **condition variable**
+
+- A condition variable coordinates 2 or more threads while allowing critical sections to be protected by mutexes
+  - The processing thread tells the condition variable it is waiting
+  - The fetching thread sends a notification to the condition variable when it finishes.
+  - The condition variable wakes up the processing thread, which then runs
+- Condition Variables scenario
+  - The processing thread creates a unique_lock instance to lock the mutex
+    - It calls wait() on the condition variable
+    - The condition variable releases the lock and block this this thread
+  - The fetching thread creates a lock_guard instance to acquire a lock
+    - It fetches the data
+    - Releases the lock
+    - Notifies the condition variable
+  - When the condition variable is notified by the fetching thread, the processing thread is woken up
+    - It acquires a lock, resumes execution and processes the data
+
+
+
+std::condition_variable
+
+- std::condition_variable is defined in <condition_variable>
+- wait() takes an argument of type unique_lock <std::mutex>
+  - It unlocks its argument and blocks the waiting thread until a notification is received
+- Timeout versions wait_for() and wait_until()
+- notify_one() sends a notification to single waiting thread
+- notify_all() sends a notification to all waiting thread

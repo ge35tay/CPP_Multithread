@@ -41,5 +41,6 @@
         "cstdio": "cpp",
         "typeinfo": "cpp",
         "bit": "cpp"
-    }
+    },
+    "C_Cpp.errorSquiggles": "Disabled"
 }
