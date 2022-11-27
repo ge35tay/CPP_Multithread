@@ -1282,4 +1282,119 @@ std::condition_variable
   - It unlocks its argument and blocks the waiting thread until a notification is received
 - Timeout versions wait_for() and wait_until()
 - notify_one() sends a notification to single waiting thread
+  - Only one of the threads which called wait() will be woken up
+  - The other waiting thread will remain blocked
+  - A different read thread processes the data each time
 - notify_all() sends a notification to all waiting thread
+  - This cause all the threads which have called wait() on the condition variable to be woken up
+  - The threads could be woken up in any order
+  - All the reader threads process the data at the same time
+
+
+
+> condition_variable.cpp
+
+
+
+
+
+### 5.2 Condition Variables with Predicate
+
+The examples before suffer from a data race.
+
+By default wait() will block until a notification is received, if the writing thread notifies the condition variable before th reading thread calls wait(), the reading thread is blocked forever,        === **"lost wakeup"**
+
+
+
+Occasionally, the waiting thread will be woken up even though the writing thread has not notified the condition variable  === **"false wakeup"**
+
+
+
+==> Solution: wait() with predicate
+
+- wait() takes a second argument, which is a predicate
+  - This also applies to wait_for() and wait_until()
+- Typically, this predicate function checks a shared bool
+- The bool is initialized to false. It will be set to true when the writing thread modifies the data
+- The waiting thread will only resume execution if the predicate function returns true
+
+
+
+Using wait with predicate
+
+- Add a shared boolean flag, initialized to false
+
+- In the wait() call, provide a callable object that checks the flag
+
+  ```c++
+  bool condition {false};   //Flag
+  
+  void reader()
+  {
+  	unique_lock<std::mutex> lk(mut);
+  	cv.wait(lk, []{return condition;});     // Lambda predicate funcrtions that checks the flag
+  }
+  ```
+
+  with this , even the writing thread finish before reading thread starts, it can still receive the data
+
+
+
+### 5.3 Futures
+
+Transferring data between threads
+
+- it is a pity that std::thread does not provide a way to return a value from a thread
+  - we transfer data from one thread to another by using a shared variable, this need to be protected by locks, to avoid data races
+- To accomplish that the C++ standard library provides std::future and std::promise
+  - These can be used to transfer data between threads via "shared state"
+  - No explicit locking or shared data variable is required
+
+
+
+
+
+Futures and promises use a producer-consumer model
+
+- Producer thread generates data
+  - The promise object sets the value in the shared state
+- Consumer thread waits for data
+  - The future object waits until the value is available
+- Consumer thread gets this value
+  - The future object returns the value from shared state
+
+
+
+Future
+
+- A future represents a value that has not yet been computed
+- std::future is one of the most important data structures in C++ concurrency
+  - It works with many different asynchronous objects and operations, not just std::promise
+- An std::future object is not usually created directly
+  - Obtained from a std::promise object, or some other asynchronous operation
+
+
+
+std::future
+
+- std::future is a template class defined in <future>
+  - The parameter is the type of the value will be computed
+- The get() member function obtains the value when ready
+  - This block until the operation is complete
+  - Then fetches its return value
+- std::future also has member functions which wait
+  - wait() blocks until the operation is complete
+  - wait_for() and wait_until() block with a timeout
+
+
+
+Using std::future with std::promise
+
+- We obtain the future instance from the promise by calling promise's get_future() member function
+
+  ```c++
+  promsie<int> p;
+  auto f{p.get_future()};
+  ```
+
+- When the consumer is ready to receive the result, it calls the future's get() member function
