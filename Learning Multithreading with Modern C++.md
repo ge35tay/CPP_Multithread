@@ -1700,3 +1700,141 @@ Advantage:
 
 
 BUt : it can be very diifficult to write lock-free code which is correct and efficient, many data structure (like double-linked list) cannot be written as lock-free
+
+
+
+
+
+## 7. Asynchronous Programming
+
+### 7.1 Asynchronous programming
+
+
+
+Operations can be performed synchronously and asynchronously
+
+- synchronous
+  - Wait for an operation to complete before starting the next one
+- asynchronous
+  - Start the next operation without waiting for the first one to complete
+
+
+
+Blocking and multi-threading programs
+
+- Blocking is undesirable in threaded programs
+
+  - Blocking reduces throughput and responsiveness of blocked thread
+  - Any thread which join with this thread also be blocked
+- Particularly in critical section
+  - Any threads which are waiting to execute the critical section will be blocked as well
+  - Possibility of deadlock, if we are using locks
+- Using asynchronous programming reduces the need to block
+  - But may not necessarily avoid it completely
+
+
+
+Asynchronous programming can be used to perform parallel operations
+
+
+
+### 7.2 Packaged Task
+
+std::packaged_task
+
+- std::packaged_task provides a higher level of abstraction of using threads
+- It associates a function with an std::promise
+- An std::packaged_task represents an asynchronus operation
+- It is a callable object
+  - When it is called, the function is run and its return value is stored in the promise
+  - We can then get the return value from the associated future
+
+
+
+creating an std::packaged_task object
+
+- std::packaged_task is a template class defined in <future>
+
+  - The parameter is the signature of the function
+
+  - eg. a function takes a string by const reference and double as input and returns an int, the sentence is like
+
+    ```c++
+    std::packaged_task<int(const std::string&, double)> pt;
+    ```
+
+  - The parameter of the associated promise is the return type of the function
+
+- The constructor of std::packaged_task takes a callable object
+
+  - This is the function that the associated std::promise will be passed to
+
+
+
+Using an std::packaged_task object
+
+- Unlike std::thread, a packaged_task does not start automatically
+  - It can be run directly
+  - Usually it is passed by move to an std::thread constructor so that it runs in its own thread
+- std::packaged_task cannot be copied
+  - It has ownership of its callable object and promise
+
+
+
+
+
+Advantage of std::packaged_task
+
+- using std::packaged_task avoids boilerplate code
+- We can create a container of packaged_task objects and use it to start threads when we are ready for them
+  - With std::thread, the thread starts running as soon as the object is created
+- Useful for managing threads
+  - Each task can be run on a specific thread
+  - Thread scheduler runs thread in a certain order
+  - Thread pool consists of threads waiting for work to arrive
+
+
+
+
+
+> packaged_task.cpp
+
+
+
+
+
+### 7.3 The async function
+
+std::async()
+
+- The std::async function is in <future>
+- We can start a thread by calling std::async()
+- async() represents a higher-level abstraction than std::thread
+  - We can start a task with async and run it in the background
+  - This allows us to do other work while the task is running
+- async() uses similar syntax to std::thread's constructor
+- We call it with the task function as the first argument, followed by the argument to task function
+
+```
+void hello()
+{
+	std::cout << "Hello Async\n";
+}
+
+int main()
+{
+	std::async(hello);   // create an instance of std::async and initialize it with the task
+}
+```
+
+
+
+
+
+std::async() with std::future
+
+- async() returns a future which contains the result of the asynchronous task
+- when we are ready, we can call get() on the future to obtain the result
+  - This allows us to use task functions which return a value
+- If we only want to know that the background task has completed, we can wait() on the future
+  - wait_for() and wait_until() if we want a timeout
