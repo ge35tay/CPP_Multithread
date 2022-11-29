@@ -1371,7 +1371,7 @@ Future
 - std::future is one of the most important data structures in C++ concurrency
   - It works with many different asynchronous objects and operations, not just std::promise
 - An std::future object is not usually created directly
-  - Obtained from a std::promise object, or some other asynchronous operation
+  - Obtained from a std::promis![image-20221129103303702](/home/yinghanhuang/.config/Typora/typora-user-images/image-20221129103303702.png)e object, or some other asynchronous operation
 
 
 
@@ -1398,3 +1398,305 @@ Using std::future with std::promise
   ```
 
 - When the consumer is ready to receive the result, it calls the future's get() member function
+
+
+
+
+
+ ### 5.4 Promise
+
+An std::promise object is associated with a std::future object
+
+- Together, they create a "shared state"
+  - The std::promise object sets a value in the shared state
+  - The std::future object get the value from the shared state
+- This is analogous to the producer thread returning the value to the consumer thread
+
+
+
+std::promise is a template class
+
+- the parameter is the type of the result
+
+- get_future() member function
+  - Returns the std::future object associated with this promise
+- set_value()
+  - Set the results to its argument
+- set_exception()
+  - indicates that an exception has occurred
+  - This can be stored in the shared state
+
+
+
+
+
+```c++
+#include <future>
+void produce(std::promise<int>& px){            // Producer function with promise
+	int x{42};
+	this_thread::sleep_for(500ms);
+	px.set_value(x);							// Set the result
+}
+
+void consume(std::future<int>& fx)
+{												// Consume function with future
+	int x=fx.get();								// Get the result
+	std::cout << "This answer is " << x << std::endl;
+}
+
+int main(){
+    promise<int> p;								// create promise instance
+    future<int> f=p.get_future();				// Get the associate future
+    
+    thread fut{consume, std::ref(f)};			// Start consumer thread with future
+    thread prom{produce, std::ref(p)};			// Start producer thread with promise
+    
+    fut.join();
+    prom.join();
+}
+```
+
+
+
+
+
+### 5.5 Promises with multiple waiting Threads
+
+with std::future, only one consumer thread can get the value from the producer
+
+- std::future is designed to have exclusive access to the shared state
+- future instances cannot be copied 
+- If more than one thread calls get() on the same future, there is a data race
+
+
+
+std::shared_future allows multiple consumers to wait for a result from a producer thread
+
+- It can be copied, so each thread has it own instance
+- Calling get() from different copies is safe
+
+
+
+
+
+obtaining a shared_future instance
+
+- As with std::future, we do not normally create a shared_future instance directly
+
+we can move an existing future object into a shared_future
+
+```c++
+promise<int> p;
+future<int> f=p.get_future();
+shared_future<int> sf1{std::move(f)};
+```
+
+we can call share() on the future to get a shared_future from it
+
+```c++
+shared_future<int> sf1{f.share()};
+```
+
+we can also obtain a shared_future directly from the promise
+
+```
+shared_future<int> sf1{p.get_future()};
+```
+
+
+
+
+
+## 6. Atomic Types
+
+### 6.1 Integer Operations and Threads
+
+On x86, all integer operations are performed as a single instruction, this means that a thread cannot be interrupted while performing integer operations
+
+
+
+> potential of data race: single memory location which is accessed by multiple threads with modification
+
+
+
+
+
+![image-20221129102219631](/home/yinghanhuang/.config/Typora/typora-user-images/image-20221129102219631.png)
+
+simple program model
+
+- A program runs on a processor
+- The processor has memory cells called registers
+- These registers store data which is needed to execute the current instruction
+- When a task switch occurs, the current thread's registers are saved and the new thread's registers are loaded up
+- Data is loaded from RAM into processor registors as needed
+  - If modified, it is then written back to RAM
+
+
+
+
+
+we need to make sure that
+
+- thread A is not interrupted until it has written the new value to RAM
+- thread B uses the new value
+
+with a mutex, this is automatically done when we call lock() and unlock()
+
+Here we can do this by declaring count as "atomic". This will cause the compiler to generate instructions which synchronize the threads accessing count.
+
+​	This prevents a data race
+
+> Integer_ops_with_atomic.cpp
+
+### 6.2 Atomic Types
+
+C++ 11 defines an atomic template in the <atomic> header
+
+The parameter must be a type which is "trivially copyable"
+
+- The copy and move constructors do nothing, or defaulted
+- Usually only bool, integer types and pointers are used
+
+
+
+For more complex types, locks may be silently added
+
+- in this case, use a pointer to the type (which wont be locked)
+
+
+
+Using a std::atomic<T> object
+
+- the object must be initialized
+
+  ```c++
+  atomic<int> x{0};
+  ```
+
+- We can assign to and from the object
+
+  ```c++
+  x = 2;
+  y = x;
+  ```
+
+  
+
+in c++ make a variable "volatile" has no effect on the behaviour of the multi-thread program
+
+
+
+### 6.3 Atomic operation
+
+  
+
+static member funcion
+
+- store()
+  - Atomically replace the objects value with its argument
+- load()
+  - Atomically return the object's value
+- operator =()
+- operator T()
+  - Synonyms for store() and load()
+- exchange()
+  - Atomically replace the object's value and return the previous value
+
+
+
+specialized member functions
+
+- pointer specializations support pointer arithmetic operations
+  - Increment and decrement operators for pointers, += and -= operators
+- Integer specializations have these and also
+  - fetch_add()
+    - equivalent to x++
+  - fetch_sub()
+    - equivalent to x--
+  - Atomic bitwise logical operations
+
+
+
+std::atomic_flag
+
+- std::atomic_flag is an atomic boolean type, it is guaranteed to be lock-free
+  - it is less overhead than std::atomic<bool>
+- It only supports 3 operations
+  - clear() set flag to false
+  - test_and_set() sets flag to true and returns previous value
+  - operator=()
+- We must initialize an atomic_flag instance to false, where there is only one option
+  - atomic_flag lock = ATOMIC_FLAG_INIT;
+
+
+
+The idea is, u create a atomic_flag variable, which is initially false, then u have several threads which try to call test_and_set(), if the return value is true, then they means the flag already has the value true, we have not changed it; if the return value is false, then that means we have changed the value of flag
+
+we can use the property to impose a "happen before" ordering on threads which are checking this flag
+
+e.g we can use std::atomic_flag to implement a basic spin lock
+
+- initialize the flag to false
+- Each thread begins by calling test_and_set()
+- if this returns true, some other thread is in the critical sections, loop and try again
+- If it returns false, this thread has set the flag and it is safe to proceed
+- Finally set the flag to false to allow another thread to enter the critical section
+
+
+
+> atomic_spin_lock.cpp
+
+
+
+
+
+pro and cons of spin lock
+
+- A spinning thread remains active, so it can continue immediately when it "gets the lock"
+  - With a mutex, the thread may need to be reloaded or woken up
+- Processor-intensive- **Only suitable for protecting very short critical sections, and/or under very low contention**
+  - Usually only used in operation systems and libraries
+  - Performance can be heavily impacted if spinning threads interrupt each other
+- Many os implement mutex as a "hybrid mutex"
+  - Spin very briefly
+  - If the thread has not been able to run, then put it to sleep
+
+
+
+
+
+### 6.4 Lock-free Programming
+
+
+
+Lock-free programming allow threads to execute critical sections without assistance from the operating system's locking facilities
+
+
+
+This avoids or reduces some of the drawbacks to using locks
+
+- Race conditions caused by forgetting to lock, or using the wrong mutex
+- Risk of deadlock
+- High overhead (mutex requires system call, it will stop the code running and waiting for the operating system's responce, the os will answer it and change the data memory, which modify kernel data structures)
+- Lack of scalability causes by coarse-grained locking
+- Code complexity and increased overhead caused by fine-grained locking
+- Lack of composability ( functions which lock should not cause other functions which lock, even if tthe mutexes are different)
+
+
+
+Advantage:
+
+- threads can never block each other
+- No possibility of deadlock or livelock
+- If a thread is blocked, other threads can continue to execute
+- Useful in real-time system
+- Important in some situations
+  - Double-check locking
+    - **But atomic types do not support . or -> operators, we will have to copy ptr to a non-atomic pointer before we can use it, cast is not a good idea**
+  - Reference counters
+  - Spin locks
+
+
+
+BUt : it can be very diifficult to write lock-free code which is correct and efficient, many data structure (like double-linked list) cannot be written as lock-free
