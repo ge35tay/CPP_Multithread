@@ -1838,3 +1838,328 @@ std::async() with std::future
   - This allows us to use task functions which return a value
 - If we only want to know that the background task has completed, we can wait() on the future
   - wait_for() and wait_until() if we want a timeout
+
+
+
+Launch options
+
+- async() may cause a new thread to be started to call the task function, or it may run the task in the same thread
+- This is controlled by flags
+  - std::launch::async
+    - A new thread is started to call the task function
+    - The task function is executed as soon as the thread starts
+  - std::launch::deferred
+    - this task is running in the same thread
+    - the task would not be run until get() or wait() is called on the returned future
+    - The task function is then executed ("lazy evaluation")
+  - if both flags are set, the implementation decides whether to start a new thread, this is default
+  - The launch flags can be set in optional extra first argument
+
+
+
+
+
+### 7.4 choosing a thread object
+
+
+
+
+
+## 8. Parallelism
+
+### 8.1 Parallelism overview
+
+Concurrency is different from parallelism, concurrency describes conceptually distinct tasks, these tasks are often interact, they may wait for an event, or wait for each other.
+
+
+
+In parallelism, many instances of the same task run at the same time
+
+- Run on multiple cores to improve scalability
+
+These tasks mostly run independently of each other.
+
+
+
+There are 2 ways to do parallelism
+
+- Explicit parallelism
+  - The programmer specifies how the work should be done in parallel
+    - e.g divide data into 4 parts and start 4 threads to process each part
+  - Involves more work for the programmer but can produce better performance
+  - It is not scalable, if u have a computer with 4 cores before and u divide the program into 4 threads, then it work out, but if you have a new computer with 8 cores, it still run at 4 threads and not accelerating
+  - Mainly useful when writing for specific hardware, or if the work naturally devides into a fixed number of ordered tasks
+- Implicit parallelism
+  - The programmer doesnt do anything, just leave the complier to specify how to do the work in parallel
+  - Makes best use of available resources, usually the best option
+
+
+
+### 8.2 Execution Policies
+
+
+
+C++ 1998 introduced a new set of functions to the standard library
+
+- These operate on containers and sequences of data
+- They implement classic algorithms, such as searching and sorting
+- Plus populating, copying, rendering etc
+
+Most of them are in <algorithm>, a few are in <numeric>
+
+An algorithm execution performs a series of operations on elements
+
+- modification
+- swap
+- comparison
+- function call application, etc
+
+
+
+
+
+Code execution and parallelism
+
+Modern hardware supports 4 different ways of executing code
+
+- sequential
+  - A single instruction processes a single data item, e.g. traditional loop
+- vectorized
+  - A single instruction processes several data items at the same time
+  - Requires suitable data structure and hardware
+- parallelized
+  - Several instructions each process a single data item at the same time
+  - Requires suitable algorithm
+- parallelized + vectorized
+  - Several instructions each process several data item at the same time
+  - Requires suitable algorithm, data structure and hardware
+
+
+
+
+
+Execution policy
+
+- C++17 added "execution policies", included in <execution>, namspace std::execution
+- These let us choose how a Standard algorithm call should be executed
+  - seq - do not use parallel execution
+  - par - use parallel execution
+  - par_unseq - use parallel and vectorized execution
+  - unseq - use vectorized execution (c++ 20)
+- These are only requests, if the hardward/software not support, it may be ignored
+- No every data structure can use execution policy, such as map
+
+```c++
+sort(v.begin(), v.end());      // Non-policy (sequential)
+sort(seq, v.begin(), v.end());		// Sequential
+sort(par, v.begin(), v.end());		// Parallel
+sort(par_unseq, v.begin(), v.end()); // Parallel and vectorized		
+sort(unseq, v.begin(), v.end());     // Vectorized
+```
+
+
+
+
+
+Sequenced execution
+
+- With sequenced policy execution, all the operations in the algorithm execution are performed on a single thread, i.e. the thread which calls the algorithm
+
+- Operations will not be interleaved, but may not necessarily be executed in a specific order
+
+  ```c++
+  vector<int> v(2000);
+  int count{0};
+  for_each(v.begin(), v.end(), [&](int& x){x = ++count;});
+  for_each(seq, v.begin(), v.end(), [&](int& x){x = ++count;});
+  ```
+
+- In the second case the elements of v will have the same values as in the first case, but may not in the same order
+
+
+
+
+
+Parallel execution
+
+- The executions are performed in parallel across a number of threads, this may include the thread that called the algorithm function
+- An operation will run on the  same operation for its entire duration, not jumping between threads
+- Operations performed on the same thread will not be interleaved, but may not necessarily be executed in a specific order
+- However, if no protection, there wil be data race
+
+
+
+
+
+Unsequenced execution  (supported in c++20)
+
+- The operations are performed on a single thread
+  - i.e the thread which calls the algorithm, so we don't need to worry about data race
+- operations will not be interleaved, but may not necessarily be executed in a specific order
+- The programmer must avoid any modification of shared state between elements or between threads
+  - Memory allocation and deallocation
+  - Mutexes, locks and other forms of synchronization 
+
+
+
+parallel unsequenced execution
+
+- The executions are performed in parallel across a number of threads
+  - This may include the thread that called the algorithm function
+- An operation may be migrated from one thread to another
+- Operations performed on the same thread may be interleaved and may not necessarily be executed in a specific order
+- The programmer must avoid data races
+- The programmer must avoid any modification of shared data between elements or between threads
+
+
+
+
+
+### 8.3 Algorithms and execution policies
+
+use instructions for execution policies: do not use execution policy
+
+
+
+### 8.4 New Parallel Algorithm
+
+std::accumulate()
+
+- std::accumulate() takes a range of iterators and an initial value, it will add the value of each element in the range to that initial value and return the sum
+- By default, the opeator + is used to perform the addition
+- To perform a different operation, we can pass a callable object as an additional fourth argument
+- std::accumulate() is specified to execute sequentially, not parallelized or vectorized 
+
+
+
+std::reduce
+
+- is a version of std：：accumulate() which supports all execution policies
+- the operator of reduce must be commutative and associative
+
+
+
+
+
+std::inclusive_scan
+
+- std::partial_sum calculates the sum of the elements so far, the calculation in a fixed order
+
+  ```c++
+  std::vector<int> v{1,2,3,4};
+  std::vector<int> v2(v.size());
+  partial_sum(v.begin(), v.end(), v2.begin());
+  ```
+
+- std::inclusive_scan works the same way as std::partial_sum, but we can use execution policy here
+
+- std::exclusive_scan calculates the sum of the elements so far, not including the current element, it takes an extra argument, which is used as if it were the first element of the input vector
+
+  ```
+  exclusive_scan(v.begin(), v.end(), v2.begin(), -1)
+  ```
+
+
+
+
+
+## 10. Practical Data Structures for Concurrent Programming
+
+std::queue
+
+- FIFO data structure
+  - Elements are pushed onto the back of queue and popped off the front
+- Removing an element involves 2 operations
+  - front() returns a reference to the elemetn at the front
+  - pop() removes the element at the front, without returning anything
+  - if pop is called in empty containers, the behavior would be undefined
+- is not suitable for use as a concurrent queue
+  - Data race if the same instance is accessed from multiple threads
+  - Race condition between front() and pop()
+  - Undefined behaviour if we pop() an empty queue
+- The simplest way to implement a concurrent queue is to write a wrapper class
+  - std::queue instance is class member
+  - std::mutex is class member
+  - each member function locks the mutex, then calls the corresponding member function in the std::queue
+
+
+
+
+
+
+concurrent queue member functions
+
+- rule of five
+  - Nothing special required. The defaults are sufficient
+- push()
+  - Locks the mutex, calls the std::queue's push() with its argument, then unlock the mutex
+- pop()
+  - Locks the mutex, calls the std::queue's front() and copies the returned value into argument
+  - Then calls the std::queue's pop() and unlocks the mutex
+  - Does sth. sensible if called on an empty queue
+
+
+
+![image-20221130152712403](/home/yinghanhuang/.config/Typora/typora-user-images/image-20221130152712403.png)
+
+![image-20221130152642296](/home/yinghanhuang/.config/Typora/typora-user-images/image-20221130152642296.png)
+
+
+
+cpp:
+
+![image-20221130153028765](/home/yinghanhuang/.config/Typora/typora-user-images/image-20221130153028765.png)
+
+![image-20221130153054288](/home/yinghanhuang/.config/Typora/typora-user-images/image-20221130153054288.png)
+
+
+
+
+
+### 10.2 Thread Pools
+
+Creating a thread involves a lot of overhead
+
+- create an execution stack for the thread
+- Call a system API
+- The operating system must create the internal data to manage the thread
+- The scheduler must execute the thread
+- A context switch occurs to run the thread
+
+it can take 10000 times as long as the calling a function directly
+
+
+
+
+
+
+
+Thread pool
+
+Thread pool is a fixed-size container of thread objects
+
+- usually equal to the number of cores on the machine
+- This can be found by calling std::thread::hardware_concurrency()
+
+it needs a queue of task function objects
+
+- A thread object takes a task off the queue
+- it will calls the task function
+- when finished, it takes the next task from the queue
+
+
+
+
+
+Overview
+
+- the thread_pool class will contain
+  - A vector of thread objects
+  - A concurrent queue to store incoming tasks
+- The user of class will call its submit() member function with a task function as argument 
+  - This task function will be pushed on the queue
+- Each thread runs in an infinite loop which calls pop() on the queue
+  - When the pop() call completes, it will return a task function
+  - The thread will then execute the returned task function
+
+  
